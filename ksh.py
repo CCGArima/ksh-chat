@@ -32,74 +32,126 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def auto_start_tunnel(local_port: int = 9999, timeout: float = 3.5) -> tuple:
+def auto_start_tunnel(local_port: int = 9999, timeout: float = 10.0) -> tuple:
     """
-    Spawns SSH tunnel process in background with non-blocking 3.5s timeout.
-    Tries Pinggy first, then localhost.run as fallback.
+    Spawns SSH tunnel process in background with real-time stream parsing.
+    Tries free.pinggy.io first, then a.pinggy.io as fallback.
     Returns (process_object, external_host, external_port) if successful, else (None, None, None).
     """
     import subprocess
     import re
     import time
-    import queue
     import threading
 
-    print(f"{Colors.YELLOW}[*] Поиск и создание интернет-туннеля (макс 3 сек)...{Colors.RESET}")
+    print(f"{Colors.YELLOW}[*] Поиск и создание интернет-туннеля (подождите 3-5 сек)...{Colors.RESET}")
 
-    def run_cmd(cmd: list, pattern: str) -> tuple:
+    # 1. Cleanup any zombie SSH processes from previous runs
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/IM", "ssh.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["pkill", "-f", "pinggy"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # 2. Ensure an SSH key exists for BatchMode
+    key_file = os.path.join(os.path.expanduser("~"), ".ksh_key")
+    if not os.path.exists(key_file):
         try:
+            subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", key_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def try_endpoint(target_host: str):
+        p_cmd = [
+            "ssh",
+            "-T",
+            "-p", "443",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "BatchMode=yes",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+        ]
+        if os.path.exists(key_file):
+            p_cmd.extend(["-i", key_file])
+        
+        # Windows OpenSSH requires 127.0.0.1 instead of localhost to avoid IPv6 bind failure
+        p_cmd.extend(["-R", f"0:127.0.0.1:{local_port}", target_host])
+
+        debug_lines = []
+        match_result = []
+
+        try:
+            # stdin=PIPE keeps stdin open so Windows OpenSSH doesn't send EOF to remote session channel
             proc = subprocess.Popen(
-                cmd,
+                p_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
+                stdin=subprocess.PIPE,
+                bufsize=0
             )
-            q = queue.Queue()
 
             def reader():
                 try:
-                    for line in iter(proc.stdout.readline, ''):
-                        if line:
-                            q.put(line)
-                        else:
+                    buf = bytearray()
+                    while True:
+                        c = proc.stdout.read(1)
+                        if not c:
+                            if buf:
+                                text = buf.decode("utf-8", "ignore").strip()
+                                if text: debug_lines.append(text)
                             break
+                        buf.extend(c)
+                        if c in (b"\n", b"\r", b" "):
+                            text = buf.decode("utf-8", "ignore").strip()
+                            if text:
+                                debug_lines.append(text)
+                                m = re.search(r"tcp://([a-zA-Z0-9\.\-]+):(\d{4,5})", text)
+                                if m:
+                                    match_result.append((m.group(1), int(m.group(2))))
+                                    break
+                            buf = bytearray()
+                        elif len(buf) > 300:
+                            text = buf.decode("utf-8", "ignore").strip()
+                            if text: debug_lines.append(text)
+                            buf = bytearray()
                 except Exception:
                     pass
 
             t = threading.Thread(target=reader, daemon=True)
             t.start()
 
-            end_time = time.time() + timeout
-            while time.time() < end_time:
-                try:
-                    line = q.get(timeout=0.2)
-                    line_str = line.strip()
-                    m = re.search(pattern, line_str)
-                    if m and "dashboard" not in m.group(1):
-                        host = m.group(1)
-                        return proc, host
-                except queue.Empty:
-                    pass
+            start_t = time.time()
+            while time.time() - start_t < 7.0:
+                if match_result:
+                    host, port = match_result[0]
+                    return proc, host, port, debug_lines
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.1)
 
             proc.terminate()
-        except Exception:
-            pass
-        return None, None
+            try: proc.kill()
+            except Exception: pass
+        except FileNotFoundError:
+            print(f"\n{Colors.CRIMSON}[!] ОШИБКА: Команда 'ssh' не найдена в системе.{Colors.RESET}")
+            print(f"{Colors.YELLOW}В Windows 10/11 нужно включить 'OpenSSH Client' в дополнительных компонентах.{Colors.RESET}")
+            return None, None, None, ["ssh not found"]
+        except Exception as e:
+            debug_lines.append(str(e))
 
-    # 1. Try Pinggy
-    p_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-p", "443", "-R", f"0:localhost:{local_port}", "a.pinggy.io"]
-    proc, host = run_cmd(p_cmd, r"https?://([a-zA-Z0-9\.\-]+)")
-    if host:
-        print(f"{Colors.GREEN}[+] Интернет-туннель Pinggy открыт: {host}:443{Colors.RESET}")
-        return proc, host, 443
+        return None, None, None, debug_lines
 
-    # 2. Try localhost.run fallback
-    l_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-R", f"80:localhost:{local_port}", "nokey@localhost.run"]
-    proc, host = run_cmd(l_cmd, r"https?://([a-zA-Z0-9\.\-]+\.lhr\.life)")
-    if host:
-        print(f"{Colors.GREEN}[+] Интернет-туннель localhost.run открыт: {host}:80{Colors.RESET}")
-        return proc, host, 80
+    # Try endpoints
+    all_debug = []
+    for target in ["tcp@free.pinggy.io", "tcp@a.pinggy.io"]:
+        proc, host, ext_port, dlines = try_endpoint(target)
+        if host:
+            print(f"{Colors.GREEN}[+] Интернет-туннель Pinggy открыт: {host}:{ext_port}{Colors.RESET}")
+            return proc, host, ext_port
+        all_debug.extend(dlines)
+
+    if all_debug:
+        print(f"{Colors.YELLOW}[!] Отладочная информация туннеля:{Colors.RESET}")
+        for dline in all_debug[-5:]:
+            print(f"    {Colors.DARK_GRAY}{dline}{Colors.RESET}")
 
     return None, None, None
 
@@ -118,6 +170,10 @@ async def host_auto_room(nick: str, custom_password: str = None, port: int = 999
     srv_task = asyncio.create_task(srv.start())
 
     await asyncio.sleep(0.3)
+    
+    if srv_task.done() and srv_task.exception():
+        import sys
+        sys.exit(1)
 
     client = KSHClient("127.0.0.1", port, "global", nick, password, join_code=join_code)
     await client.start()
@@ -128,8 +184,8 @@ async def host_auto_room(nick: str, custom_password: str = None, port: int = 999
 def interactive_menu():
     print("\033[2J\033[H", end="")  # Clear screen
     print(render_ksh_logo())
-    print(f"\n{Colors.BOLD}{Colors.BLOOD_RED} [ KSH PRIVATE CONSOLE CHAT SYSTEM ]{Colors.RESET}")
-    print(f"{Colors.DARK_GRAY} ----------------------------------------{Colors.RESET}\n")
+    print(f"\n{Colors.BOLD}{Colors.BLOOD_RED} [ KSH PRIVATE CONSOLE CHAT SYSTEM - BUILD 999999 ]{Colors.RESET}")
+    print(f"{Colors.DARK_GRAY} ----------------------------------------------------{Colors.RESET}\n")
     print(f" {Colors.CORAL}[1]{Colors.RESET} Создать локальную комнату (LAN / Wi-Fi)")
     print(f" {Colors.CORAL}[2]{Colors.RESET} Создать Интернет-комнату (WAN / Global)")
     print(f" {Colors.CORAL}[3]{Colors.RESET} Присоединиться по коду (Join Room)")
@@ -177,8 +233,13 @@ def interactive_menu():
             if tunnel_proc:
                 try:
                     tunnel_proc.terminate()
+                    tunnel_proc.kill()
                 except Exception:
                     pass
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/IM", "ssh.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(["pkill", "-f", "pinggy"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     elif choice == "3":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- ПОДКЛЮЧЕНИЕ К КОМНАТЕ ---{Colors.RESET}")

@@ -1,70 +1,56 @@
+#!/usr/bin/env python3
 """
-==============================================================================
+===============================================================================
                        KSH CHAT ENGINE v1.1.0
              DEVELOPED & SIGNED BY: KSH DEVELOPMENT TEAM
              REPOSITORY: https://github.com/CCGArima/ksh-chat
 -------------------------------------------------------------------------------
-MODULE: ASYNC MULTI-ROOM TCP SERVER & UDP DISCOVERY BEACON (server.py)
+MODULE: CLOUD WEBSOCKET SERVER FOR RENDER.COM / AMVERA (render_server.py)
 ===============================================================================
 """
 
-import asyncio
+import os
+import sys
 import json
+import http
+import asyncio
 import logging
-import argparse
 from typing import Dict, Set
+
+try:
+    import websockets
+except ImportError:
+    print("[!] Error: 'websockets' package is required. Run: pip install websockets")
+    sys.exit(1)
+
 from crypto import KSHCrypto
 from ui import Colors, render_ksh_logo
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
-class KSHBeaconProtocol(asyncio.DatagramProtocol):
-    """UDP Beacon listener for auto-discovery of KSH Server on local network."""
-    def __init__(self, tcp_port: int):
-        self.tcp_port = tcp_port
-
-    def connection_made(self, transport):
-        self.transport = transport
-
-    def datagram_received(self, data: bytes, addr):
-        if data.strip() == b"KSH_DISCOVER":
-            response = json.dumps({
-                "service": "KSH_CHAT",
-                "port": self.tcp_port
-            }).encode('utf-8')
-            self.transport.sendto(response, addr)
-
-
-class KSHClientHandler:
-    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, server):
-        self.reader = reader
-        self.writer = writer
+class KSHWebSocketClientHandler:
+    def __init__(self, ws, server):
+        self.ws = ws
         self.server = server
         self.nick = "Anonymous"
         self.room = "global"
         self.authenticated = False
-        self.addr = writer.get_extra_info('peername')
+        self.remote_address = getattr(ws, "remote_address", ("unknown", 0))
 
     async def send_json(self, data: dict):
         try:
-            message = json.dumps(data) + "\n"
-            self.writer.write(message.encode('utf-8'))
-            await self.writer.drain()
+            await self.ws.send(json.dumps(data))
         except Exception:
             pass
 
     async def handle(self):
-        logging.info(f"New connection from {self.addr}")
+        logging.info(f"New WebSocket client from {self.remote_address}")
         try:
-            while True:
-                line = await self.reader.readline()
-                if not line:
-                    break
-
+            async for raw_message in self.ws:
                 try:
-                    data = json.loads(line.decode('utf-8').strip())
-                except json.JSONDecodeError:
+                    data = json.loads(raw_message)
+                except Exception:
                     continue
 
                 msg_type = data.get("type")
@@ -85,10 +71,10 @@ class KSHClientHandler:
                 elif msg_type == "PING":
                     await self.send_json({"type": "PONG"})
 
-        except asyncio.CancelledError:
+        except websockets.exceptions.ConnectionClosed:
             pass
         except Exception as e:
-            logging.error(f"Error handling client {self.addr}: {e}")
+            logging.error(f"Error handling client {self.remote_address}: {e}")
         finally:
             await self._cleanup()
 
@@ -99,9 +85,9 @@ class KSHClientHandler:
 
         expected_hash = self.server.get_room_password_hash(room)
         if expected_hash and pass_hash != expected_hash:
-            logging.warning(f"Auth failed for {self.addr} in room '{room}'")
+            logging.warning(f"Auth failed for {self.remote_address} in room '{room}'")
             await self.send_json({"type": "AUTH_FAIL", "msg": "Invalid room password!"})
-            self.writer.close()
+            await self.ws.close()
             return
 
         unique_nick = self.server.make_unique_nick(room, nick)
@@ -110,7 +96,7 @@ class KSHClientHandler:
         self.authenticated = True
 
         self.server.add_client(self)
-        logging.info(f"User '{self.nick}' authenticated in room '{self.room}' from {self.addr}")
+        logging.info(f"User '{self.nick}' authenticated in room '{self.room}' from {self.remote_address}")
 
         await self.send_json({
             "type": "AUTH_OK",
@@ -177,30 +163,28 @@ class KSHClientHandler:
             logging.info(f"User '{self.nick}' disconnected from room '{self.room}'")
             await self.server.broadcast_system(self.room, f"User '{self.nick}' left the chat.")
         try:
-            self.writer.close()
-            await self.writer.wait_closed()
+            await self.ws.close()
         except Exception:
             pass
 
 
-class KSHServer:
-    def __init__(self, host: str = "0.0.0.0", port: int = 9999, password: str = None, beacon_port: int = 9998):
+class KSHCloudServer:
+    def __init__(self, host: str = "0.0.0.0", port: int = 10000, password: str = None):
         self.host = host
         self.port = port
         self.password = password
-        self.beacon_port = beacon_port
         self.password_hash = KSHCrypto.hash_password(password) if password else None
-        self.rooms: Dict[str, Set[KSHClientHandler]] = {}
+        self.rooms: Dict[str, Set[KSHWebSocketClientHandler]] = {}
 
     def get_room_password_hash(self, room: str) -> str:
         return self.password_hash
 
-    def add_client(self, client: KSHClientHandler):
+    def add_client(self, client: KSHWebSocketClientHandler):
         if client.room not in self.rooms:
             self.rooms[client.room] = set()
         self.rooms[client.room].add(client)
 
-    def remove_client(self, client: KSHClientHandler):
+    def remove_client(self, client: KSHWebSocketClientHandler):
         if client.room in self.rooms and client in self.rooms[client.room]:
             self.rooms[client.room].remove(client)
             if not self.rooms[client.room]:
@@ -218,13 +202,13 @@ class KSHServer:
     def get_room_users(self, room: str) -> list:
         return [c.nick for c in self.rooms.get(room, set())]
 
-    def get_client_by_nick(self, room: str, nick: str) -> KSHClientHandler:
+    def get_client_by_nick(self, room: str, nick: str) -> KSHWebSocketClientHandler:
         for client in self.rooms.get(room, set()):
             if client.nick.lower() == nick.lower():
                 return client
         return None
 
-    async def broadcast_room(self, room: str, data: dict, exclude: KSHClientHandler = None):
+    async def broadcast_room(self, room: str, data: dict, exclude: KSHWebSocketClientHandler = None):
         clients = list(self.rooms.get(room, set()))
         for client in clients:
             if client != exclude:
@@ -236,51 +220,37 @@ class KSHServer:
             "msg": message
         })
 
+    def process_http_request(self, connection, request):
+        """Responds to Render.com HTTP health checks with HTTP 200 only for non-WebSocket HTTP requests."""
+        upgrade = request.headers.get("Upgrade", "").lower()
+        if upgrade != "websocket" and request.path in ("/", "/health", "/status"):
+            return connection.respond(http.HTTPStatus.OK, "KSH PRIVATE CHAT CLOUD SERVER IS RUNNING OK\n")
+        return None
+
     async def start(self):
-        loop = asyncio.get_running_loop()
-        
-        try:
-            server = await asyncio.start_server(
-                lambda r, w: KSHClientHandler(r, w, self).handle(),
-                self.host, self.port
-            )
-        except OSError as e:
-            print(f"\n{Colors.CRIMSON}[!] ОШИБКА: Не удалось запустить сервер на порту {self.port}. Возможно, порт уже занят другим процессом KSH.{Colors.RESET}")
-            raise e
-
-        try:
-            await loop.create_datagram_endpoint(
-                lambda: KSHBeaconProtocol(self.port),
-                local_addr=("0.0.0.0", self.beacon_port)
-            )
-            beacon_status = f"{Colors.GREEN}ONLINE (Port {self.beacon_port}){Colors.RESET}"
-        except Exception:
-            beacon_status = f"{Colors.YELLOW}OFFLINE (Port busy){Colors.RESET}"
-
         print("\n" + render_ksh_logo())
-        print(f"\n{Colors.BOLD}{Colors.BLOOD_RED}[KSH PRIVATE CHAT SERVER INITIALIZED]{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.BLOOD_RED}[KSH CLOUD WEBSOCKET SERVER INITIALIZED]{Colors.RESET}")
         print(f"{Colors.WHITE} Listening on:{Colors.RESET} {Colors.CORAL}{self.host}:{self.port}{Colors.RESET}")
-        print(f"{Colors.WHITE} Protection:{Colors.RESET}   {Colors.GREEN if self.password else Colors.YELLOW}{'PASSWORD PROTECTED' if self.password else 'OPEN (NO PASSWORD)'}{Colors.RESET}")
-        print(f"{Colors.WHITE} Auto-Discovery:{Colors.RESET} {beacon_status}")
-        print(f"{Colors.WHITE} Protocol:{Colors.RESET}     {Colors.BRIGHT_RED}KSH TCP + E2E CIPHER{Colors.RESET}\n")
+        print(f"{Colors.WHITE} Protocol:{Colors.RESET}     {Colors.BRIGHT_RED}WSS / WEBSOCKET + E2E CIPHER{Colors.RESET}\n")
 
-        async with server:
-            await server.serve_forever()
+        async with websockets.serve(
+            lambda ws: KSHWebSocketClientHandler(ws, self).handle(),
+            self.host,
+            self.port,
+            process_request=self.process_http_request
+        ):
+            await asyncio.Future()  # run forever
 
 
-def run_server(host: str = "0.0.0.0", port: int = 9999, password: str = None):
-    srv = KSHServer(host=host, port=port, password=password)
+def main():
+    port = int(os.environ.get("PORT", 10000))
+    password = os.environ.get("KSH_PASSWORD", None)
+    server = KSHCloudServer(host="0.0.0.0", port=port, password=password)
     try:
-        asyncio.run(srv.start())
+        asyncio.run(server.start())
     except KeyboardInterrupt:
-        print(f"\n{Colors.CRIMSON}[!] Server shutting down...{Colors.RESET}")
+        print("[!] Server shutting down...")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="KSH Private Chat Server")
-    parser.add_argument("--host", default="0.0.0.0", help="Host address to bind")
-    parser.add_argument("--port", type=int, default=9999, help="Server port")
-    parser.add_argument("--password", default=None, help="Room / Server access password")
-    args = parser.parse_args()
-
-    run_server(args.host, args.port, args.password)
+    main()

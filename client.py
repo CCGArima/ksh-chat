@@ -51,6 +51,8 @@ class KSHClient:
         self.crypto = KSHCrypto(password) if password else KSHCrypto("DEFAULT_KSH_ROOM_SECRET")
         self.reader: asyncio.StreamReader = None
         self.writer: asyncio.StreamWriter = None
+        self.ws = None
+        self.is_ws = False
         self.running = True
         self.prompt_prefix = f"{Colors.BOLD}{Colors.BLOOD_RED}[KSH] > {Colors.RESET}"
 
@@ -62,7 +64,7 @@ class KSHClient:
                 self.host, self.port, self.password, self.room = parsed
                 self.join_code = self.host
                 self.crypto = KSHCrypto(self.password) if self.password else KSHCrypto("DEFAULT_KSH_ROOM_SECRET")
-        elif self.host and ":" in self.host:
+        elif self.host and ":" in self.host and not self.host.startswith("http") and not self.host.startswith("ws"):
             parts = self.host.split(":", 1)
             if parts[1].strip().isdigit():
                 self.host = parts[0].strip()
@@ -78,17 +80,41 @@ class KSHClient:
                 print(format_system_banner("DISCOVERY FAILED", "No active KSH server found on local network. Specify Join Code or IP manually."))
                 return False
 
-        try:
-            self.reader, self.writer = await asyncio.wait_for(
-                asyncio.open_connection(self.host, self.port),
-                timeout=4.0
-            )
-        except asyncio.TimeoutError:
-            print(format_system_banner("CONNECTION TIMEOUT", f"Could not reach server at {self.host}:{self.port} within 4s.\nMake sure the Server is running on that machine!"))
-            return False
-        except Exception as e:
-            print(format_system_banner("CONNECTION FAILED", f"Could not connect to {self.host}:{self.port} - {str(e)}"))
-            return False
+        # Detect WebSocket (Render.com / Amvera / ws / wss)
+        if "onrender.com" in self.host or "amvera" in self.host or self.host.startswith("ws://") or self.host.startswith("wss://"):
+            self.is_ws = True
+            try:
+                import websockets
+            except ImportError:
+                print(format_system_banner("DEPENDENCY MISSING", "WebSocket connection requires 'websockets' package.\nRun: pip install websockets"))
+                return False
+
+            ws_url = self.host
+            if not ws_url.startswith("ws://") and not ws_url.startswith("wss://"):
+                ws_url = f"wss://{self.host}"
+
+            print(f"{Colors.YELLOW}[*] Connecting to cloud WebSocket server: {ws_url}...{Colors.RESET}")
+            try:
+                self.ws = await asyncio.wait_for(websockets.connect(ws_url), timeout=15.0)
+            except asyncio.TimeoutError:
+                print(format_system_banner("CONNECTION TIMEOUT", f"Cloud server at {ws_url} is waking up or unreachable. Please retry in 20 seconds."))
+                return False
+            except Exception as e:
+                print(format_system_banner("CONNECTION FAILED", f"Could not connect to {ws_url} - {str(e)}"))
+                return False
+
+        else:
+            try:
+                self.reader, self.writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.host, self.port),
+                    timeout=4.0
+                )
+            except asyncio.TimeoutError:
+                print(format_system_banner("CONNECTION TIMEOUT", f"Could not reach server at {self.host}:{self.port} within 4s.\nMake sure the Server is running on that machine!"))
+                return False
+            except Exception as e:
+                print(format_system_banner("CONNECTION FAILED", f"Could not connect to {self.host}:{self.port} - {str(e)}"))
+                return False
 
         auth_pkt = {
             "type": "AUTH",
@@ -99,12 +125,16 @@ class KSHClient:
         await self._send_json(auth_pkt)
 
         try:
-            line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
-            if not line:
-                print(format_system_banner("AUTH ERROR", "Server closed connection during authentication."))
-                return False
+            if self.is_ws:
+                line = await asyncio.wait_for(self.ws.recv(), timeout=10.0)
+                response = json.loads(line)
+            else:
+                line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
+                if not line:
+                    print(format_system_banner("AUTH ERROR", "Server closed connection during authentication."))
+                    return False
+                response = json.loads(line.decode('utf-8').strip())
 
-            response = json.loads(line.decode('utf-8').strip())
             if response.get("type") == "AUTH_OK":
                 self.nickname = response.get("assigned_nick", self.nickname)
                 self.room = response.get("room", self.room)
@@ -120,9 +150,12 @@ class KSHClient:
 
     async def _send_json(self, data: dict):
         try:
-            msg = json.dumps(data) + "\n"
-            self.writer.write(msg.encode('utf-8'))
-            await self.writer.drain()
+            if self.is_ws:
+                await self.ws.send(json.dumps(data))
+            else:
+                msg = json.dumps(data) + "\n"
+                self.writer.write(msg.encode('utf-8'))
+                await self.writer.drain()
         except Exception:
             self.running = False
 
@@ -140,16 +173,19 @@ class KSHClient:
         """Asynchronously receives messages from server."""
         while self.running:
             try:
-                line = await self.reader.readline()
-                if not line:
-                    self.print_incoming(format_message("SYSTEM", "Disconnected from server.", is_system=True))
-                    self.running = False
-                    break
-
-                try:
-                    data = json.loads(line.decode('utf-8').strip())
-                except json.JSONDecodeError:
-                    continue
+                if self.is_ws:
+                    line = await self.ws.recv()
+                    data = json.loads(line)
+                else:
+                    line = await self.reader.readline()
+                    if not line:
+                        self.print_incoming(format_message("SYSTEM", "Disconnected from server.", is_system=True))
+                        self.running = False
+                        break
+                    try:
+                        data = json.loads(line.decode('utf-8').strip())
+                    except json.JSONDecodeError:
+                        continue
 
                 msg_type = data.get("type")
 
@@ -303,6 +339,11 @@ class KSHClient:
 
         if self.writer:
             self.writer.close()
+        if self.ws:
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
 
 
 def run_client(host: str, port: int, room: str, nick: str, password: str, join_code: str = ""):
