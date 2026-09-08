@@ -32,53 +32,74 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def auto_start_tunnel(local_port: int = 9999) -> tuple:
+def auto_start_tunnel(local_port: int = 9999, timeout: float = 3.5) -> tuple:
     """
-    Automatically spawns SSH tunnel process in background.
+    Spawns SSH tunnel process in background with non-blocking 3.5s timeout.
     Tries Pinggy first, then localhost.run as fallback.
     Returns (process_object, external_host, external_port) if successful, else (None, None, None).
     """
     import subprocess
     import re
     import time
+    import queue
+    import threading
 
-    print(f"{Colors.YELLOW}[*] Автоматическое создание интернет-туннеля...{Colors.RESET}")
+    print(f"{Colors.YELLOW}[*] Поиск и создание интернет-туннеля (макс 3 сек)...{Colors.RESET}")
+
+    def run_cmd(cmd: list, pattern: str) -> tuple:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            q = queue.Queue()
+
+            def reader():
+                try:
+                    for line in iter(proc.stdout.readline, ''):
+                        if line:
+                            q.put(line)
+                        else:
+                            break
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=reader, daemon=True)
+            t.start()
+
+            end_time = time.time() + timeout
+            while time.time() < end_time:
+                try:
+                    line = q.get(timeout=0.2)
+                    line_str = line.strip()
+                    m = re.search(pattern, line_str)
+                    if m and "dashboard" not in m.group(1):
+                        host = m.group(1)
+                        return proc, host
+                except queue.Empty:
+                    pass
+
+            proc.terminate()
+        except Exception:
+            pass
+        return None, None
 
     # 1. Try Pinggy
-    try:
-        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-p", "443", "-R", f"0:localhost:{local_port}", "a.pinggy.io"]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        start = time.time()
-        while time.time() - start < 5:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            m = re.search(r"https?://([a-zA-Z0-9\.\-]+)", line.strip())
-            if m and "dashboard" not in m.group(1):
-                host = m.group(1)
-                print(f"{Colors.GREEN}[+] Интернет-туннель Pinggy открыт: {host}:443{Colors.RESET}")
-                return proc, host, 443
-        proc.terminate()
-    except Exception:
-        pass
+    p_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-p", "443", "-R", f"0:localhost:{local_port}", "a.pinggy.io"]
+    proc, host = run_cmd(p_cmd, r"https?://([a-zA-Z0-9\.\-]+)")
+    if host:
+        print(f"{Colors.GREEN}[+] Интернет-туннель Pinggy открыт: {host}:443{Colors.RESET}")
+        return proc, host, 443
 
     # 2. Try localhost.run fallback
-    try:
-        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-R", f"80:localhost:{local_port}", "nokey@localhost.run"]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        start = time.time()
-        while time.time() - start < 7:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            m = re.search(r"https?://([a-zA-Z0-9\.\-]+\.lhr\.life)", line.strip())
-            if m:
-                host = m.group(1)
-                print(f"{Colors.GREEN}[+] Интернет-туннель localhost.run открыт: {host}:80{Colors.RESET}")
-                return proc, host, 80
-        proc.terminate()
-    except Exception:
-        pass
+    l_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-R", f"80:localhost:{local_port}", "nokey@localhost.run"]
+    proc, host = run_cmd(l_cmd, r"https?://([a-zA-Z0-9\.\-]+\.lhr\.life)")
+    if host:
+        print(f"{Colors.GREEN}[+] Интернет-туннель localhost.run открыт: {host}:80{Colors.RESET}")
+        return proc, host, 80
 
     return None, None, None
 
