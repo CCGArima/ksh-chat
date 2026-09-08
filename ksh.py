@@ -38,6 +38,57 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def auto_start_tunnel(local_port: int = 9999) -> tuple:
+    """
+    Automatically spawns SSH tunnel process in background.
+    Tries Pinggy first, then localhost.run as fallback.
+    Returns (process_object, external_host, external_port) if successful, else (None, None, None).
+    """
+    import subprocess
+    import re
+    import time
+
+    print(f"{Colors.YELLOW}[*] Автоматическое создание интернет-туннеля...{Colors.RESET}")
+
+    # 1. Try Pinggy
+    try:
+        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-p", "443", "-R", f"0:localhost:{local_port}", "a.pinggy.io"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        start = time.time()
+        while time.time() - start < 5:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            m = re.search(r"https?://([a-zA-Z0-9\.\-]+)", line.strip())
+            if m and "dashboard" not in m.group(1):
+                host = m.group(1)
+                print(f"{Colors.GREEN}[+] Интернет-туннель Pinggy открыт: {host}:443{Colors.RESET}")
+                return proc, host, 443
+        proc.terminate()
+    except Exception:
+        pass
+
+    # 2. Try localhost.run fallback
+    try:
+        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-R", f"80:localhost:{local_port}", "nokey@localhost.run"]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        start = time.time()
+        while time.time() - start < 7:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            m = re.search(r"https?://([a-zA-Z0-9\.\-]+\.lhr\.life)", line.strip())
+            if m:
+                host = m.group(1)
+                print(f"{Colors.GREEN}[+] Интернет-туннель localhost.run открыт: {host}:80{Colors.RESET}")
+                return proc, host, 80
+        proc.terminate()
+    except Exception:
+        pass
+
+    return None, None, None
+
+
 async def host_auto_room(nick: str, custom_password: str = None, port: int = 9999, external_host: str = None, external_port: int = None):
     """Starts the server in background and connects Host directly to the room."""
     password = custom_password.strip() if custom_password else secrets.token_hex(3).upper()
@@ -84,30 +135,35 @@ def interactive_menu():
 
     elif choice == "2":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ ИНТЕРНЕТ-КОМНАТЫ (WAN) ---{Colors.RESET}")
-        print(f"{Colors.DARK_GRAY} Для подключения друзей вне вашего дома требуется внешний IP или Pinggy/Ngrok туннель.{Colors.RESET}")
-        print(f"{Colors.YELLOW} Команда для запуска бесплатного туннеля в другом терминале:{Colors.RESET}")
-        print(f"   {Colors.BOLD}ssh -p 443 -R 0:localhost:9999 a.pinggy.io{Colors.RESET}\n")
-        
         nick = input(f" {Colors.CORAL}Ваш никнейм [Host]: {Colors.RESET}").strip() or "Host"
-        ext_addr = input(f" {Colors.CORAL}Внешний адрес/туннель (например, a.pinggy.link:43210 или ваш Публичный IP): {Colors.RESET}").strip()
         custom_pass = input(f" {Colors.CORAL}Свой пароль (Enter - сгенерировать случайный): {Colors.RESET}").strip()
 
-        ext_host, ext_port = None, None
-        if ext_addr:
-            if ":" in ext_addr:
-                parts = ext_addr.split(":", 1)
-                ext_host = parts[0].strip()
-                if parts[1].strip().isdigit():
-                    ext_port = int(parts[1].strip())
-            else:
-                ext_host = ext_addr
-                ext_port = 9999
+        tunnel_proc, ext_host, ext_port = auto_start_tunnel(9999)
+
+        if not ext_host:
+            print(f"{Colors.YELLOW}[!] Авто-туннель не ответил. Введите свой внешний адрес/IP вручную:{Colors.RESET}")
+            ext_addr = input(f" {Colors.CORAL}Внешний адрес (например, a.pinggy.link:43210 или IP): {Colors.RESET}").strip()
+            if ext_addr:
+                if ":" in ext_addr:
+                    parts = ext_addr.split(":", 1)
+                    ext_host = parts[0].strip()
+                    if parts[1].strip().isdigit():
+                        ext_port = int(parts[1].strip())
+                else:
+                    ext_host = ext_addr
+                    ext_port = 9999
 
         print(f"\n{Colors.GREEN}[+] Запуск интернет-сервера и вход...{Colors.RESET}")
         try:
             asyncio.run(host_auto_room(nick, custom_password=custom_pass if custom_pass else None, external_host=ext_host, external_port=ext_port))
         except KeyboardInterrupt:
             print(f"\n{Colors.CRIMSON}[!] Сервер остановлен.{Colors.RESET}")
+        finally:
+            if tunnel_proc:
+                try:
+                    tunnel_proc.terminate()
+                except Exception:
+                    pass
 
     elif choice == "3":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- ПОДКЛЮЧЕНИЕ К КОМНАТЕ ---{Colors.RESET}")
