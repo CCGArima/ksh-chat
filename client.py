@@ -86,8 +86,15 @@ class KSHClient:
             try:
                 import websockets
             except ImportError:
-                print(format_system_banner("DEPENDENCY MISSING", "WebSocket connection requires 'websockets' package.\nRun: pip install websockets"))
-                return False
+                print(f"{Colors.YELLOW}[*] Установка компонента websockets для облачного подключения...{Colors.RESET}")
+                try:
+                    import subprocess
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "websockets"])
+                    import websockets
+                    print(f"{Colors.GREEN}[+] Библиотека websockets успешно установлена!{Colors.RESET}")
+                except Exception as e:
+                    print(format_system_banner("DEPENDENCY MISSING", f"WebSocket connection requires 'websockets' package.\nRun: pip install websockets\nError: {e}"))
+                    return False
 
             ws_url = self.host
             if not ws_url.startswith("ws://") and not ws_url.startswith("wss://"):

@@ -198,6 +198,18 @@ def interactive_menu():
     choice = input(f"{Colors.BOLD}{Colors.BLOOD_RED}Выберите вариант [1-5]: {Colors.RESET}").strip()
 
     if choice == "1":
+        try:
+            import websockets
+        except ImportError:
+            print(f"\n{Colors.YELLOW}[*] Установка компонента websockets для работы с облаком...{Colors.RESET}")
+            try:
+                import subprocess
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "websockets"])
+                import websockets
+                print(f"{Colors.GREEN}[+] Успешно установлено!{Colors.RESET}")
+            except Exception as e:
+                print(f"{Colors.RED}[!] Ошибка автоустановки websockets: {e}{Colors.RESET}")
+
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- ВХОД В ОБЛАЧНЫЙ СЕРВЕР KSH (24/7 ONLINE) ---{Colors.RESET}")
         nick = input(f" {Colors.CORAL}Ваш никнейм [Operator]: {Colors.RESET}").strip() or "Operator"
         room = input(f" {Colors.CORAL}Имя комнаты [global]: {Colors.RESET}").strip() or "global"
