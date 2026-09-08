@@ -95,7 +95,11 @@ class KSHClient:
 
             print(f"{Colors.YELLOW}[*] Connecting to cloud WebSocket server: {ws_url}...{Colors.RESET}")
             try:
-                self.ws = await asyncio.wait_for(websockets.connect(ws_url), timeout=15.0)
+                import ssl
+                ssl_ctx = ssl.create_default_context()
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+                self.ws = await asyncio.wait_for(websockets.connect(ws_url, ssl=ssl_ctx), timeout=15.0)
             except asyncio.TimeoutError:
                 print(format_system_banner("CONNECTION TIMEOUT", f"Cloud server at {ws_url} is waking up or unreachable. Please retry in 20 seconds."))
                 return False

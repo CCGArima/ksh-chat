@@ -12,6 +12,12 @@ if errorlevel 1 (
     exit /b
 )
 
+python -c "import websockets" >nul 2>&1
+if errorlevel 1 (
+    echo Проверка и установка компонентов для Облачного чата...
+    pip install websockets >nul 2>&1
+)
+
 echo Очистка старых туннелей...
 taskkill /F /IM ssh.exe >nul 2>&1
 

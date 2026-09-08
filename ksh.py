@@ -181,19 +181,36 @@ async def host_auto_room(nick: str, custom_password: str = None, port: int = 999
     srv_task.cancel()
 
 
+RENDER_DEFAULT_URL = "wss://ksh-chat.onrender.com"
+
+
 def interactive_menu():
     print("\033[2J\033[H", end="")  # Clear screen
     print(render_ksh_logo())
-    print(f"\n{Colors.BOLD}{Colors.BLOOD_RED} [ KSH PRIVATE CONSOLE CHAT SYSTEM - BUILD 999999 ]{Colors.RESET}")
+    print(f"\n{Colors.BOLD}{Colors.BLOOD_RED} [ KSH PRIVATE CONSOLE CHAT SYSTEM - CLOUD BUILD ]{Colors.RESET}")
     print(f"{Colors.DARK_GRAY} ----------------------------------------------------{Colors.RESET}\n")
-    print(f" {Colors.CORAL}[1]{Colors.RESET} Создать локальную комнату (LAN / Wi-Fi)")
-    print(f" {Colors.CORAL}[2]{Colors.RESET} Создать Интернет-комнату (WAN / Global)")
-    print(f" {Colors.CORAL}[3]{Colors.RESET} Присоединиться по коду (Join Room)")
-    print(f" {Colors.CORAL}[4]{Colors.RESET} Выход\n")
+    print(f" {Colors.GREEN}[1]{Colors.RESET} {Colors.BOLD}Войти в Облачный KSH Сервер (24/7 Онлайн - БЕЗ КОДОВ){Colors.RESET}")
+    print(f" {Colors.CORAL}[2]{Colors.RESET} Создать локальную комнату (LAN / Wi-Fi)")
+    print(f" {Colors.CORAL}[3]{Colors.RESET} Создать временную Интернет-комнату (WAN / SSH)")
+    print(f" {Colors.CORAL}[4]{Colors.RESET} Присоединиться по коду / адресу (Join Room)")
+    print(f" {Colors.CORAL}[5]{Colors.RESET} Выход\n")
 
-    choice = input(f"{Colors.BOLD}{Colors.BLOOD_RED}Выберите вариант [1-4]: {Colors.RESET}").strip()
+    choice = input(f"{Colors.BOLD}{Colors.BLOOD_RED}Выберите вариант [1-5]: {Colors.RESET}").strip()
 
     if choice == "1":
+        print(f"\n{Colors.BOLD}{Colors.WHITE}--- ВХОД В ОБЛАЧНЫЙ СЕРВЕР KSH (24/7 ONLINE) ---{Colors.RESET}")
+        nick = input(f" {Colors.CORAL}Ваш никнейм [Operator]: {Colors.RESET}").strip() or "Operator"
+        room = input(f" {Colors.CORAL}Имя комнаты [global]: {Colors.RESET}").strip() or "global"
+        password = input(f" {Colors.CORAL}Пароль комнаты (Enter - общий доступ): {Colors.RESET}").strip()
+
+        print(f"\n{Colors.GREEN}[+] Подключение к облачному серверу KSH...{Colors.RESET}")
+        client = KSHClient(RENDER_DEFAULT_URL, 443, room, nick, password)
+        try:
+            asyncio.run(client.start())
+        except KeyboardInterrupt:
+            print(f"\n{Colors.CRIMSON}[!] Сессия завершена.{Colors.RESET}")
+
+    elif choice == "2":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ ЛОКАЛЬНОЙ КОМНАТЫ (LAN) ---{Colors.RESET}")
         nick = input(f" {Colors.CORAL}Ваш никнейм [Host]: {Colors.RESET}").strip() or "Host"
         custom_pass = input(f" {Colors.CORAL}Свой пароль (Enter - сгенерировать случайный): {Colors.RESET}").strip()
@@ -204,7 +221,7 @@ def interactive_menu():
         except KeyboardInterrupt:
             print(f"\n{Colors.CRIMSON}[!] Сервер остановлен.{Colors.RESET}")
 
-    elif choice == "2":
+    elif choice == "3":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ ИНТЕРНЕТ-КОМНАТЫ (WAN) ---{Colors.RESET}")
         nick = input(f" {Colors.CORAL}Ваш никнейм [Host]: {Colors.RESET}").strip() or "Host"
         custom_pass = input(f" {Colors.CORAL}Свой пароль (Enter - сгенерировать случайный): {Colors.RESET}").strip()
@@ -241,7 +258,7 @@ def interactive_menu():
             else:
                 subprocess.run(["pkill", "-f", "pinggy"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    elif choice == "3":
+    elif choice == "4":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- ПОДКЛЮЧЕНИЕ К КОМНАТЕ ---{Colors.RESET}")
         nick = input(f" {Colors.CORAL}Ваш никнейм [Guest]: {Colors.RESET}").strip() or "Guest"
         raw_code = input(f" {Colors.CORAL}Вставьте КОД подключения KSH-XXXX (или IP:порт / Enter для авто-поиска): {Colors.RESET}").strip()

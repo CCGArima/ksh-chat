@@ -10,6 +10,12 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+python3 -c "import websockets" >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "Установка компонентов для Облачного чата..."
+    python3 -m pip install -q websockets >/dev/null 2>&1
+fi
+
 echo "Очистка старых туннелей..."
 pkill -f "pinggy" >/dev/null 2>&1
 
