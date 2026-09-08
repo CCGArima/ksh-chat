@@ -38,11 +38,15 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-async def host_auto_room(nick: str, custom_password: str = None, port: int = 9999):
+async def host_auto_room(nick: str, custom_password: str = None, port: int = 9999, external_host: str = None, external_port: int = None):
     """Starts the server in background and connects Host directly to the room."""
     password = custom_password.strip() if custom_password else secrets.token_hex(3).upper()
-    ip = get_local_ip()
-    join_code = generate_join_code(ip, port, password, "global")
+    
+    if external_host and external_port:
+        join_code = generate_join_code(external_host, external_port, password, "global")
+    else:
+        ip = get_local_ip()
+        join_code = generate_join_code(ip, port, password, "global")
 
     srv = KSHServer(host="0.0.0.0", port=port, password=password)
     srv_task = asyncio.create_task(srv.start())
@@ -60,27 +64,55 @@ def interactive_menu():
     print(render_ksh_logo())
     print(f"\n{Colors.BOLD}{Colors.BLOOD_RED} [ KSH PRIVATE CONSOLE CHAT SYSTEM ]{Colors.RESET}")
     print(f"{Colors.DARK_GRAY} ----------------------------------------{Colors.RESET}\n")
-    print(f" {Colors.CORAL}[1]{Colors.RESET} Создать закрытую комнату (Host)")
-    print(f" {Colors.CORAL}[2]{Colors.RESET} Присоединиться по коду (Join Room)")
-    print(f" {Colors.CORAL}[3]{Colors.RESET} Выход\n")
+    print(f" {Colors.CORAL}[1]{Colors.RESET} Создать локальную комнату (LAN / Wi-Fi)")
+    print(f" {Colors.CORAL}[2]{Colors.RESET} Создать Интернет-комнату (WAN / Global)")
+    print(f" {Colors.CORAL}[3]{Colors.RESET} Присоединиться по коду (Join Room)")
+    print(f" {Colors.CORAL}[4]{Colors.RESET} Выход\n")
 
-    choice = input(f"{Colors.BOLD}{Colors.BLOOD_RED}Выберите вариант [1-3]: {Colors.RESET}").strip()
+    choice = input(f"{Colors.BOLD}{Colors.BLOOD_RED}Выберите вариант [1-4]: {Colors.RESET}").strip()
 
     if choice == "1":
-        print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ КОМНАТЫ ---{Colors.RESET}")
+        print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ ЛОКАЛЬНОЙ КОМНАТЫ (LAN) ---{Colors.RESET}")
         nick = input(f" {Colors.CORAL}Ваш никнейм [Host]: {Colors.RESET}").strip() or "Host"
         custom_pass = input(f" {Colors.CORAL}Свой пароль (Enter - сгенерировать случайный): {Colors.RESET}").strip()
         
-        print(f"\n{Colors.GREEN}[+] Запуск сервера и вход в комнату...{Colors.RESET}")
+        print(f"\n{Colors.GREEN}[+] Запуск локального сервера и вход...{Colors.RESET}")
         try:
             asyncio.run(host_auto_room(nick, custom_password=custom_pass if custom_pass else None))
         except KeyboardInterrupt:
             print(f"\n{Colors.CRIMSON}[!] Сервер остановлен.{Colors.RESET}")
 
     elif choice == "2":
+        print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ ИНТЕРНЕТ-КОМНАТЫ (WAN) ---{Colors.RESET}")
+        print(f"{Colors.DARK_GRAY} Для подключения друзей вне вашего дома требуется внешний IP или Pinggy/Ngrok туннель.{Colors.RESET}")
+        print(f"{Colors.YELLOW} Команда для запуска бесплатного туннеля в другом терминале:{Colors.RESET}")
+        print(f"   {Colors.BOLD}ssh -R 0:localhost:9999 free.pinggy.online{Colors.RESET}\n")
+        
+        nick = input(f" {Colors.CORAL}Ваш никнейм [Host]: {Colors.RESET}").strip() or "Host"
+        ext_addr = input(f" {Colors.CORAL}Внешний адрес/туннель (например, a.pinggy.link:43210 или ваш Публичный IP): {Colors.RESET}").strip()
+        custom_pass = input(f" {Colors.CORAL}Свой пароль (Enter - сгенерировать случайный): {Colors.RESET}").strip()
+
+        ext_host, ext_port = None, None
+        if ext_addr:
+            if ":" in ext_addr:
+                parts = ext_addr.split(":", 1)
+                ext_host = parts[0].strip()
+                if parts[1].strip().isdigit():
+                    ext_port = int(parts[1].strip())
+            else:
+                ext_host = ext_addr
+                ext_port = 9999
+
+        print(f"\n{Colors.GREEN}[+] Запуск интернет-сервера и вход...{Colors.RESET}")
+        try:
+            asyncio.run(host_auto_room(nick, custom_password=custom_pass if custom_pass else None, external_host=ext_host, external_port=ext_port))
+        except KeyboardInterrupt:
+            print(f"\n{Colors.CRIMSON}[!] Сервер остановлен.{Colors.RESET}")
+
+    elif choice == "3":
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- ПОДКЛЮЧЕНИЕ К КОМНАТЕ ---{Colors.RESET}")
         nick = input(f" {Colors.CORAL}Ваш никнейм [Guest]: {Colors.RESET}").strip() or "Guest"
-        raw_code = input(f" {Colors.CORAL}Вставьте КОД подключения (или Enter для авто-поиска): {Colors.RESET}").strip()
+        raw_code = input(f" {Colors.CORAL}Вставьте КОД подключения KSH-XXXX (или IP:порт / Enter для авто-поиска): {Colors.RESET}").strip()
 
         if raw_code and raw_code.startswith("KSH-"):
             parsed = parse_join_code(raw_code)
