@@ -3,9 +3,11 @@
 KSH CHAT ENGINE - CLIENT MODULE (client.py)
 -------------------------------------------------------------------------------
 ИЗМЕНЕНИЯ И УЛУЧШЕНИЯ:
-1. [Подключение по Коду KSH-XXXX]: Авто-декодирование вставленного кода.
-2. [Автоматический поиск сервера в сети (Auto-Discovery)]: Поиск по UDP.
-3. [Команды управления]: Поддержка /help, /users, /pm, /nick, /clear, /quit.
+1. [Таймаут подключения]: Добавлен 4-секундный таймаут на открытие сокета 
+   (asyncio.wait_for), чтобы клиент не зависал, если сервер выключен или не доступен.
+2. [Подключение по Коду KSH-XXXX]: Авто-декодирование вставленного кода.
+3. [Автоматический поиск сервера в сети (Auto-Discovery)]: Поиск по UDP.
+4. [Команды управления]: Поддержка /help, /users, /pm, /nick, /clear, /quit.
 ===============================================================================
 """
 
@@ -75,7 +77,13 @@ class KSHClient:
                 return False
 
         try:
-            self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port),
+                timeout=4.0
+            )
+        except asyncio.TimeoutError:
+            print(format_system_banner("CONNECTION TIMEOUT", f"Could not reach server at {self.host}:{self.port} within 4s.\nMake sure the Server is running on that machine!"))
+            return False
         except Exception as e:
             print(format_system_banner("CONNECTION FAILED", f"Could not connect to {self.host}:{self.port} - {str(e)}"))
             return False
