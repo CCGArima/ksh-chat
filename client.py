@@ -65,6 +65,11 @@ class KSHClient:
                 self.host, self.port, self.password, self.room = parsed
                 self.join_code = self.host
                 self.crypto = KSHCrypto(self.password) if self.password else KSHCrypto("DEFAULT_KSH_ROOM_SECRET")
+        elif self.host and ":" in self.host:
+            parts = self.host.split(":", 1)
+            if parts[1].strip().isdigit():
+                self.host = parts[0].strip()
+                self.port = int(parts[1].strip())
 
         if not self.host or self.host.lower() in ("auto", "scan", "discover"):
             print(f"{Colors.YELLOW}[*] Scanning local network for KSH Server...{Colors.RESET}")

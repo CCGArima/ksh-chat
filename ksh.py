@@ -97,7 +97,13 @@ def interactive_menu():
                 print(f"{Colors.RED}[!] Неверный код подключения!{Colors.RESET}")
                 return
         elif raw_code:
-            client = KSHClient(raw_code, 9999, "global", nick, "")
+            host_val, port_val = raw_code, 9999
+            if ":" in raw_code:
+                parts = raw_code.split(":", 1)
+                host_val = parts[0].strip()
+                if parts[1].strip().isdigit():
+                    port_val = int(parts[1].strip())
+            client = KSHClient(host_val, port_val, "global", nick, "")
             try:
                 asyncio.run(client.start())
             except KeyboardInterrupt:
