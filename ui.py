@@ -131,6 +131,11 @@ def render_header(room_name: str, nickname: str, host: str, port: int, is_e2ee: 
         padding = max(0, (width - 2 - len(strip_ansi(line))) // 2)
         out.append(f"{border_color}║{Colors.RESET}{' ' * padding}{line}{' ' * max(0, width - 2 - padding - len(strip_ansi(line)))}{border_color}║{Colors.RESET}")
     
+    # GitHub tagline
+    tagline = f"{Colors.DARK_GRAY}github.com/CCGArima/ksh-chat{Colors.RESET}"
+    t_pad = max(0, (width - 2 - len(strip_ansi(tagline))) // 2)
+    out.append(f"{border_color}║{Colors.RESET}{' ' * t_pad}{tagline}{' ' * max(0, width - 2 - t_pad - len(strip_ansi(tagline)))}{border_color}║{Colors.RESET}")
+
     out.append(border_color + "╠" + "═" * (width - 2) + "╣" + Colors.RESET)
     
     info_pad = max(0, (width - 2 - len(strip_ansi(info_str))) // 2)
