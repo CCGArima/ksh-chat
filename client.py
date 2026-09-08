@@ -18,6 +18,24 @@ from crypto import KSHCrypto
 from ui import Colors, render_header, format_message, format_system_banner, parse_join_code
 
 
+def disable_quickedit():
+    """Disables QuickEdit mode on Windows to prevent console freezing when user clicks text."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            h_stdin = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+            mode = ctypes.c_ulong()
+            if kernel32.GetConsoleMode(h_stdin, ctypes.byref(mode)):
+                # ENABLE_QUICK_EDIT_MODE = 0x0040, ENABLE_EXTENDED_FLAGS = 0x0080
+                new_mode = (mode.value & ~0x0040) | 0x0080
+                kernel32.SetConsoleMode(h_stdin, new_mode)
+        except Exception:
+            pass
+
+disable_quickedit()
+
+
 def discover_server(beacon_port: int = 9998, timeout: float = 1.5) -> tuple:
     """
     Sends UDP broadcast to discover active KSH Server on local network.
