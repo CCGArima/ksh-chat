@@ -1,14 +1,10 @@
 """
 ===============================================================================
-KSH CHAT ENGINE - CRYPTO MODULE (crypto.py)
+                       KSH CHAT ENGINE v1.1.0
+             DEVELOPED & SIGNED BY: KSH DEVELOPMENT TEAM
+             REPOSITORY: https://github.com/CCGArima/ksh-chat
 -------------------------------------------------------------------------------
-ИЗМЕНЕНИЯ И УЛУЧШЕНИЯ (По запросам пользователя):
-1. [Mac/Windows Compatibility Fix]: Убрана ошибка Decryption Error при передаче 
-   сообщений между Mac и Windows. 
-   Переведено на единый алгоритм HMAC-SHA256 XOR Stream Cipher, 
-   работающий 100% на чистом Python без обязательной установки pip пакетов.
-2. [PBKDF2 Key Derivation]: Автоматическая обрезка пробелов в паролях для 
-   предотвращения ошибок при копировании кодов.
+MODULE: E2EE HMAC-SHA256 XOR STREAM CIPHER & PBKDF2 DERIVATION (crypto.py)
 ===============================================================================
 """
 
