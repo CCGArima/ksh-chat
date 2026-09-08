@@ -1,0 +1,6 @@
+# Optional dependencies for KSH Console Chat
+# Note: KSH is designed to run with ZERO external dependencies using Python 3 standard library!
+# Installing these packages enables hardware-accelerated AES-256-GCM and legacy Windows colors.
+
+cryptography>=41.0.0
+colorama>=0.4.6
