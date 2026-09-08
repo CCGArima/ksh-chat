@@ -86,7 +86,7 @@ def interactive_menu():
         print(f"\n{Colors.BOLD}{Colors.WHITE}--- СОЗДАНИЕ ИНТЕРНЕТ-КОМНАТЫ (WAN) ---{Colors.RESET}")
         print(f"{Colors.DARK_GRAY} Для подключения друзей вне вашего дома требуется внешний IP или Pinggy/Ngrok туннель.{Colors.RESET}")
         print(f"{Colors.YELLOW} Команда для запуска бесплатного туннеля в другом терминале:{Colors.RESET}")
-        print(f"   {Colors.BOLD}ssh -R 0:localhost:9999 free.pinggy.online{Colors.RESET}\n")
+        print(f"   {Colors.BOLD}ssh -p 443 -R 0:localhost:9999 a.pinggy.io{Colors.RESET}\n")
         
         nick = input(f" {Colors.CORAL}Ваш никнейм [Host]: {Colors.RESET}").strip() or "Host"
         ext_addr = input(f" {Colors.CORAL}Внешний адрес/туннель (например, a.pinggy.link:43210 или ваш Публичный IP): {Colors.RESET}").strip()
