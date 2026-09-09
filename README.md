@@ -22,7 +22,7 @@
 ## 📌 О Проекте
 
 * **Язык разработки:** Python 3 (3.9+)
-* **Автор / Разработчик:** [CCGArima (Тимур Дарциев)](https://github.com/CCGArima) & KSH Development Team
+* **Автор / Разработчик:** [CCGArima (Тимур Дарчиев)](https://github.com/CCGArima) & KSH Development Team
 * **Репозиторий проекта:** [https://github.com/CCGArima/ksh-chat](https://github.com/CCGArima/ksh-chat)
 * **Облачный хост:** Render.com (`wss://ksh-chat.onrender.com`)
 * **Лицензия:** MIT License
